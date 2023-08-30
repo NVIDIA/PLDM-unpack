@@ -242,7 +242,7 @@ class PLDMUnpack:
             + self.header_map["PackageHeaderIdentifier"]
             Util.cli_log(log_msg, False)
             return False
-        self.header_map["PackageHeaderFormatVersion"] = str(
+        self.header_map["PackageHeaderFormatRevision"] = str(
             int.from_bytes(self.fwpkg_fd.read(1),
                            byteorder='little',
                            signed=False))
@@ -779,10 +779,10 @@ class PLDMUnpack:
         package_json["PackageHeaderInformation"]["PackageHeaderIdentifier"] = (
             self.header_map["PackageHeaderIdentifier"])
         package_json["PackageHeaderInformation"][
-            "PackageHeaderFormatVersion"] = (
-                self.header_map["PackageHeaderFormatVersion"])
+            "PackageHeaderFormatRevision"] = (
+                self.header_map["PackageHeaderFormatRevision"])
         if package_json["PackageHeaderInformation"][
-                "PackageHeaderFormatVersion"] != "1":
+                "PackageHeaderFormatRevision"] != "1":
             return False, "The input firmware package version does not conform \
             to the format created by NVIDIA packaging tool."
 

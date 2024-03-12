@@ -33,7 +33,7 @@ import sys
 import time
 import uuid
 
-UNPACK_TOOL_VERSION = "4.0.6"
+UNPACK_TOOL_VERSION = "4.1.0"
 
 class Util:
     """
@@ -235,8 +235,13 @@ class PLDMUnpack:
         # check if UUID is valid
         pldm_fw_header_id_v1_0 = b'\xf0\x18\x87\x8c\xcb\x7d\x49\x43\x98\x00\xa0\x2f\x05\x9a\xca\x02'
         uuid_v1_0 = str(uuid.UUID(bytes=pldm_fw_header_id_v1_0))
-        self.header_map["PackageHeaderIdentifier"] = str(
-            uuid.UUID(bytes=self.fwpkg_fd.read(16)))
+        try:
+            self.header_map["PackageHeaderIdentifier"] = str(
+                uuid.UUID(bytes=self.fwpkg_fd.read(16)))
+        except ValueError:
+            log_msg = "Error: incorrect package format."
+            Util.cli_log(log_msg, False)
+            return False
         if uuid_v1_0 != self.header_map["PackageHeaderIdentifier"]:
             log_msg = "Expected PLDM v1.0 but PackageHeaderIdentifier is "\
             + self.header_map["PackageHeaderIdentifier"]
@@ -260,7 +265,7 @@ class PLDMUnpack:
                                          signed=False)
         self.header_map["PackageVersionStringLength"] = version_str_len
         self.header_map["PackageVersionString"] = self.fwpkg_fd.read(
-            version_str_len).decode('utf-8')
+            version_str_len).split(b'\x00')[0].decode('utf-8')
         self.full_header["PackageHeaderInformation"] = self.header_map
         return True
 
@@ -299,7 +304,7 @@ class PLDMUnpack:
             id_record_map[
                 "ComponentImageSetVersionString"] = self.fwpkg_fd.read(
                     id_record_map["ComponentImageSetVersionStringLength"]
-                ).decode('utf-8')
+                ).split(b'\x00')[0].decode('utf-8')
             descriptors = []
             for j in range(id_record_map["DescriptorCount"]):
                 descriptor_map = {}
@@ -342,7 +347,7 @@ class PLDMUnpack:
                             "VendorDefinedDescriptorTitleString"] = self.fwpkg_fd.read(
                                 descriptor_map[
                                     "VendorDefinedDescriptorTitleStringLength"]
-                            ).decode('utf-8')
+                            ).split(b'\x00')[0].decode('utf-8')
                         vendor_def_data_len = (
                             descriptor_map["AdditionalDescriptorLength"] -
                             (2 + descriptor_map[
@@ -383,8 +388,8 @@ class PLDMUnpack:
                 int.from_bytes(self.fwpkg_fd.read(2),
                                byteorder='little',
                                signed=False))
-            comp_info["ComponentComparisonStamp"] = int.from_bytes(
-                self.fwpkg_fd.read(4), byteorder='little', signed=False)
+            comp_info["ComponentComparisonStamp"] = hex(int.from_bytes(
+                self.fwpkg_fd.read(4), byteorder='little', signed=False))
             comp_info["ComponentOptions"] = int.from_bytes(
                 self.fwpkg_fd.read(2), byteorder='little', signed=False)
             comp_info["RequestedComponentActivationMethod"] = int.from_bytes(
@@ -406,7 +411,7 @@ class PLDMUnpack:
             comp_info["ComponentVersionStringLength"] = int.from_bytes(
                 self.fwpkg_fd.read(1), byteorder='little', signed=False)
             comp_info["ComponentVersionString"] = self.fwpkg_fd.read(
-                comp_info["ComponentVersionStringLength"]).decode('utf-8')
+                comp_info["ComponentVersionStringLength"]).split(b'\x00')[0].decode('utf-8')
             self.component_img_info_list.append(comp_info)
         self.full_header["ComponentImageInformationArea"] = {
             "ComponentImageCount": component_image_count,
@@ -487,6 +492,7 @@ class PLDMUnpack:
                 Util.cli_log(log_msg, False)
                 return False
             img_name = output_dir + self.get_image_name(index)
+            img_name = re.sub(r'\s+', '', img_name)
             if img_name == "":
                 log_msg = "Error: The input firmware package does not conform to \
                 the format created by NVIDIA packaging tool."
@@ -560,19 +566,18 @@ class PLDMUnpack:
                         os.makedirs(output_dir)
                     parsing_valid = self.create_unpacked_files(output_dir)
                 if self.verbose:
-                    log_message = f"PLDM Output directory: {output_dir}, \
-                        Package name: {package_name}"
+                    log_message = f"PLDM Output directory: {output_dir}," \
+                        f"Package name: {package_name}"
 
                     Util.cli_log(log_message, True)
                     if parsing_valid is False:
-                        log_message = "Package Header Contents:\
-                             " + str(self.header_map)
+                        log_message = f"Package Header Contents: {str(self.header_map)}"
                         Util.cli_log(log_message, True)
-                        log_message = "FirmwareDeviceIDRecords Contents:\
-                             " + str(self.fd_id_record_list)
+                        log_message = f"FirmwareDeviceIDRecords Contents: \
+                            {str(self.fd_id_record_list)}"
                         Util.cli_log(log_message, True)
-                        log_message = "ComponentImageInformation Contents:\
-                             " + str(self.component_img_info_list)
+                        log_message = f"ComponentImageInformation Contents:\
+                            {str(self.component_img_info_list)}"
                         Util.cli_log(log_message, True)
             return parsing_valid
         except IOError as e_io_error:
@@ -865,7 +870,7 @@ def main():
 
     pldm_parser = PLDMUnpack()
     pldm_parser.unpack = tool_args.unpack
-
+    pldm_parser.verbose = tool_args.verbose
     if tool_args.show_pkg_content is True:
         pldm_parser.unpack = False
 

@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-# SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: MIT
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
@@ -23,6 +23,7 @@
 
 """Modules imported for unpack tool"""
 import argparse
+from datetime import datetime
 import hashlib
 import json
 import math
@@ -33,7 +34,7 @@ import sys
 import time
 import uuid
 
-UNPACK_TOOL_VERSION = "4.1.0"
+UNPACK_TOOL_VERSION = "4.1.3"
 
 class Util:
     """
@@ -89,6 +90,29 @@ class Util:
 
         name = desc_type_dict.get(desc_type, f'{desc_type:#x}')
         return name
+
+    @staticmethod
+    def get_alt_time_format(time_stamp):
+        """ Convert Y-m-d H:M:S:f z format to d/m/y H:M:S """
+        parts = time_stamp.split(' ')
+        time_stamp_no_zone = ' '.join(parts[:-1])
+        original_format = "%Y-%m-%d %H:%M:%S:%f"
+        date_object = datetime.strptime(time_stamp_no_zone, original_format)
+        new_format = "%d/%m/%Y %H:%M:%S"
+        new_time_stamp = date_object.strftime(new_format)
+        return new_time_stamp
+
+    @staticmethod
+    def get_set_bit_indices(int_val):
+        """ Get list of set bit indices in a number """
+        set_bit_indices = []
+        index = 0
+        while int_val > 0:
+            if int_val & 1:
+                set_bit_indices.append(index)
+            int_val >>= 1
+            index += 1
+        return set_bit_indices
 
     @staticmethod
     def get_timestamp_str(timestamp):
@@ -220,6 +244,11 @@ class PLDMUnpack:
             "ComponentImageInformationArea": {},
             "Package Header Checksum": ''
         }
+        self.pkg_builder_json = {
+            "PackageHeaderInformation":{},
+            "FirmwareDeviceIdentificationArea": [],
+            "ComponentImageInformationArea": []
+        }
         self.verbose = False
         self.little_endian_list = [
             "IANA Enterprise ID", "PCI Vendor ID", "PCI Device ID",
@@ -237,11 +266,12 @@ class PLDMUnpack:
         uuid_v1_0 = str(uuid.UUID(bytes=pldm_fw_header_id_v1_0))
         try:
             self.header_map["PackageHeaderIdentifier"] = str(
-                uuid.UUID(bytes=self.fwpkg_fd.read(16)))
+            uuid.UUID(bytes=self.fwpkg_fd.read(16)))
         except ValueError:
             log_msg = "Error: incorrect package format."
             Util.cli_log(log_msg, False)
             return False
+
         if uuid_v1_0 != self.header_map["PackageHeaderIdentifier"]:
             log_msg = "Expected PLDM v1.0 but PackageHeaderIdentifier is "\
             + self.header_map["PackageHeaderIdentifier"]
@@ -388,8 +418,7 @@ class PLDMUnpack:
                 int.from_bytes(self.fwpkg_fd.read(2),
                                byteorder='little',
                                signed=False))
-            comp_info["ComponentComparisonStamp"] = hex(int.from_bytes(
-                self.fwpkg_fd.read(4), byteorder='little', signed=False))
+            comp_info["ComponentComparisonStamp"] = Util.get_padded_hex(self.fwpkg_fd.read(4))
             comp_info["ComponentOptions"] = int.from_bytes(
                 self.fwpkg_fd.read(2), byteorder='little', signed=False)
             comp_info["RequestedComponentActivationMethod"] = int.from_bytes(
@@ -481,6 +510,7 @@ class PLDMUnpack:
         Returns:
             True if unpacking was successful
         """
+        # pylint: disable=too-many-locals
         package_size = os.path.getsize(self.package)
         for index, info in enumerate(self.component_img_info_list):
             offset = info["ComponentLocationOffset"]
@@ -516,6 +546,13 @@ class PLDMUnpack:
                 if os.path.exists(img_name):
                     os.chmod(img_name,
                              stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+                    if img_name.endswith('_image.bin'):
+                        sha256_hash = Util.get_checksum_for_component_image(
+                            img_name)[:8]
+                        base, _ = img_name.rsplit('_image.bin', 1)
+                        new_img_name = base + "_" + sha256_hash + "_image.bin"
+                        os.rename(img_name, new_img_name)
+                        info["FWImageName"] = new_img_name
             except OSError as err:
                 log_msg = f"Error: Could not create file {img_name} due to {err}"
                 Util.cli_log(log_msg, False)
@@ -601,10 +638,11 @@ class PLDMUnpack:
                 indices.append(shift)
         return indices
 
+    # pylint: disable=unused-argument
     def get_signature_type(self, fw_image, component_identifier):
         """ Method to tell if unpacked bin is prod signed or debug signed """
         return 'N/A'
-    
+
     @staticmethod
     def is_glacier_device(record, device_name):
         """
@@ -737,6 +775,74 @@ class PLDMUnpack:
             descriptors.append(desc)
         return descriptors
 
+    def get_builder_json(self):
+        """ 
+        Get PLDM metadata in JSON format ingestible by the open src pkg builder tool
+        OSS package builder script can be found here:
+        https://github.com/openbmc/pldm/blob/master/tools/fw-update/pldm_fwup_pkg_creator.py
+        """
+        header_info = {
+            "PackageHeaderIdentifier": self.header_map["PackageHeaderIdentifier"].replace('-', ''),
+            "PackageHeaderFormatVersion": int(self.header_map["PackageHeaderFormatRevision"]),
+            "PackageReleaseDateTime": Util.get_alt_time_format(
+                self.header_map["PackageReleaseDateTime"]),
+            "PackageVersionString": self.header_map["PackageVersionString"]}
+        fw_id_area = []
+        for device_records in self.full_header[
+                'FirmwareDeviceIdentificationArea']['FirmwareDeviceIDRecords']:
+            fw_id_rec = {
+                "DeviceUpdateOptionFlags": Util.get_set_bit_indices(
+                    device_records["DeviceUpdateOptionFlags"]),
+                "ComponentImageSetVersionString": device_records["ComponentImageSetVersionString"],
+                "ApplicableComponents": Util.get_set_bit_indices(
+                    device_records["ApplicableComponents"]),
+                "Descriptors": []
+            }
+            desc_list = []
+            for descriptors in device_records["RecordDescriptors"]:
+                if descriptors.get("InitialDescriptorType"):
+                    desc_data = {
+                        "DescriptorType": descriptors.get("InitialDescriptorType"),
+                        "DescriptorData": hex(int.from_bytes(descriptors.get(
+                            "InitialDescriptorData"), byteorder='big', signed=False))[2:],
+                    }
+                elif descriptors.get("AdditionalDescriptorType") == 65535:
+                    desc_data = {
+                        "DescriptorType": descriptors.get("AdditionalDescriptorType"),
+                        "VendorDefinedDescriptorTitleString": descriptors.get(
+                            "VendorDefinedDescriptorTitleString"),
+                        "VendorDefinedDescriptorData": descriptors.get(
+                            "VendorDefinedDescriptorData")
+                    }
+                else:
+                    desc_data = {
+                        "DescriptorType": descriptors.get("AdditionalDescriptorType"),
+                        "DescriptorData": hex(int.from_bytes(descriptors.get(
+                            "AdditionalDescriptorIdentifierData"),
+                            byteorder='big',
+                            signed=False))[2:],
+                    }
+                desc_list.append(desc_data)
+            fw_id_rec["Descriptors"] = desc_list
+            fw_id_area.append(fw_id_rec)
+        comp_img_area = []
+        for img_data in self.component_img_info_list:
+            img_info = {
+                "ComponentClassification": img_data["ComponentClassification"],
+                "ComponentIdentifier": int(img_data["ComponentIdentifier"][2:], 16),
+                "ComponentOptions": Util.get_set_bit_indices(img_data["ComponentOptions"]),
+                "RequestedComponentActivationMethod": Util.get_set_bit_indices(
+                    img_data['RequestedComponentActivationMethod']),
+                "ComponentVersionString": img_data["ComponentVersionString"],
+                "ComponentComparisonStamp": img_data["ComponentComparisonStamp"]
+            }
+            comp_img_area.append(img_info)
+        self.pkg_builder_json = {
+            "PackageHeaderInformation": header_info,
+            "FirmwareDeviceIdentificationArea": fw_id_area,
+            "ComponentImageInformationArea": comp_img_area
+        }
+
     def get_full_metadata_json(self):
         """ Decode byte value descriptors for full package metadata command """
         for device_records in self.full_header[
@@ -824,9 +930,9 @@ def main():
     Call upack parser and prepare output json
     """
     arg_parser = argparse.ArgumentParser(prog='fwpkg-unpack',
-                                         description="\
-    NVIDIA fwpkg-unpack v{UNPACK_TOOL_VERSION} The firmware package unpack tool performs parsing of\
-    the firmware package and unpacking. The unpacker will extract all firmware\
+                                         description=\
+    f"NVIDIA fwpkg-unpack v{UNPACK_TOOL_VERSION} The firmware package unpack tool performs\
+    parsing of the firmware package and unpacking. The unpacker will extract all firmware\
     images from the package and create bin files for each.",
                                          allow_abbrev=False)
     arg_parser.add_argument(
@@ -847,6 +953,13 @@ def main():
         action='store_true',
         help=
         "Provide all PLDM metadata in package without extracting firmware images."
+    )
+    arg_group.add_argument(
+        "--dump_builder_json",
+        action='store_true',
+        help=
+        "Dump PLDM metadata to stdout in JSON format, " \
+            "which shall be input to OSS PLDM package builder tool."
     )
     arg_parser.add_argument(
         "--outdir",
@@ -871,6 +984,7 @@ def main():
     pldm_parser = PLDMUnpack()
     pldm_parser.unpack = tool_args.unpack
     pldm_parser.verbose = tool_args.verbose
+
     if tool_args.show_pkg_content is True:
         pldm_parser.unpack = False
 
@@ -887,6 +1001,12 @@ def main():
                 if not parser_status:
                     print("Status : Failed to prepare JSON records")
                     print("Path for LogFile ", Util.LOGFILE_PATH)
+                    sys.exit(1)
+                if tool_args.dump_builder_json:
+                    pldm_parser.get_builder_json()
+                    json_output = json.dumps(pldm_parser.pkg_builder_json,
+                                            sort_keys=False,
+                                            indent=4)
             else:
                 pldm_parser.get_full_metadata_json()
                 json_output = json.dumps(pldm_parser.full_header,

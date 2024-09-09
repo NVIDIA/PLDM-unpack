@@ -1,6 +1,6 @@
 # PLDM-unpack
 
-> SPDX-FileCopyrightText: Copyright (c) 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+> SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 >
 > SPDX-License-Identifier: MIT
 
@@ -16,36 +16,26 @@ The source code is written in the file fwpkg-unpack.py which is a Python script.
 ## Usage
 <pre>
 The tool supports the following options:
-usage: python3 fwpkg-unpack.py [-h] [--unpack] [--show_pkg_content] [--show_all_metadata]
-                    [--outdir OUTDIR] [--version] [--verbose]
-                    [file]
+usage: python3 fwpkg_unpack.py --help
+usage: fwpkg-unpack [-h] [--unpack] [--show_pkg_content] [--show_all_metadata] [--dump_builder_json] [--outdir OUTDIR] [--version] [--verbose] [file]
 
-NVIDIA fwpkg-unpack v4.0.6 The firmware package unpack tool performs parsing
-of the firmware package and unpacking. The unpacker will extract all firmware
-images from the package and create bin files for each.
+NVIDIA fwpkg-unpack v4.1.3 The firmware package unpack tool performs parsing of the firmware package and unpacking. The unpacker will extract all firmware images
+from the package and create bin files for each.
 
 positional arguments:
   file                 Provide firmware package filename to unpack.
 
 optional arguments:
   -h, --help           show this help message and exit
-  --unpack             Unpack the firmware package and extract all component
-                       images.
-  --show_pkg_content   Provide package content description without extracting
-                       firmware images.
-  --show_all_metadata  Provide all PLDM metadata in package without extracting
-                       firmware images.
-  --outdir OUTDIR      Provide path to the directory where unpacked FW files
-                       will be stored. This option is used along with
-                       --unpack. If this option not specified with --unpack,
-                       current directory is assumed as outdir. Creates the
-                       directory at a given path if it does not exist.
+  --unpack             Unpack the firmware package and extract all component images.
+  --show_pkg_content   Provide package content description without extracting firmware images.
+  --show_all_metadata  Provide all PLDM metadata in package without extracting firmware images.
+  --dump_builder_json  Dump PLDM metadata to stdout in JSON format, which shall be input to OSS PLDM package builder tool.
+  --outdir OUTDIR      Provide path to the directory where unpacked FW files will be stored. This option is used along with --unpack. If this option not
+                       specified with --unpack, current directory is assumed as outdir. Creates the directory at a given path if it does not exist.
   --version            Show tool version.
-  --verbose            Verbose Mode, This option is used along with --unpack
-                       , --show_pkg_content or --show_all_metadata. By using this command, debug
-                       prints from the code will be copied in a debug logfile
-                       created in the current working directory with name
-                       fwpkg_unpack_log.txt from unpack tool.
+  --verbose            Verbose Mode, This option is used along with --unpack or --show_pkg_content. By using this command, debug prints from the code will be
+                       copied in a debug logfile created in the same directory with name fwpkg_unpack_log.txt from unpack tool.
 </pre>
 
 ## Unpack Example
@@ -1212,5 +1202,253 @@ $ python3 fwpkg_unpack.py --show_all_metadata nvfw_HGX-H100x8_0002_230517.3.0_pr
         ]
     },
     "Package Header Checksum": 3701773251
+}
+```
+### --dump_builder_json command option
+#### This output can be used as metadata JSON input for the OSS PLDM package creator tool available here 
+https://github.com/openbmc/pldm/blob/master/tools/fw-update/pldm_fwup_pkg_creator.py
+```
+$ python3 fwpkg_unpack.py --dump_builder_json nvfw_GB200-P4975_0004_240819.1.0_custom_prod-signed.fwpkg
+```
+```json
+{
+    "PackageHeaderInformation": {
+        "PackageHeaderIdentifier": "f018878ccb7d49439800a02f059aca02",
+        "PackageHeaderFormatVersion": 1,
+        "PackageReleaseDateTime": "19/08/2024 07:00:30",
+        "PackageVersionString": "GB200-P4975_0004_240819.1.0_custom"
+    },
+    "FirmwareDeviceIdentificationArea": [
+        {
+            "DeviceUpdateOptionFlags": [],
+            "ComponentImageSetVersionString": "ERoT,HMC:SKU_179:",
+            "ApplicableComponents": [
+                0,
+                1
+            ],
+            "Descriptors": [
+                {
+                    "DescriptorType": 1,
+                    "DescriptorData": "47160000"
+                },
+                {
+                    "DescriptorType": 2,
+                    "DescriptorData": "162023c93ec5411595f448701d49d675"
+                },
+                {
+                    "DescriptorType": 65535,
+                    "VendorDefinedDescriptorTitleString": "GLACIERDSD",
+                    "VendorDefinedDescriptorData": "10"
+                },
+                {
+                    "DescriptorType": 65535,
+                    "VendorDefinedDescriptorTitleString": "APSKU",
+                    "VendorDefinedDescriptorData": "b3000010"
+                },
+                {
+                    "DescriptorType": 65535,
+                    "VendorDefinedDescriptorTitleString": "ECSKU",
+                    "VendorDefinedDescriptorData": "4d35368b"
+                }
+            ]
+        },
+        {
+            "DeviceUpdateOptionFlags": [
+                0
+            ],
+            "ComponentImageSetVersionString": "CPLD:MAX10:",
+            "ApplicableComponents": [
+                2
+            ],
+            "Descriptors": [
+                {
+                    "DescriptorType": 2,
+                    "DescriptorData": "f65ec98a70e84e3da6c18d9f2b51d3e0"
+                }
+            ]
+        },
+        {
+            "DeviceUpdateOptionFlags": [],
+            "ComponentImageSetVersionString": "ERoT,SBIOS:C01_2P_894:",
+            "ApplicableComponents": [
+                0,
+                3
+            ],
+            "Descriptors": [
+                {
+                    "DescriptorType": 1,
+                    "DescriptorData": "47160000"
+                },
+                {
+                    "DescriptorType": 2,
+                    "DescriptorData": "162023c93ec5411595f448701d49d675"
+                },
+                {
+                    "DescriptorType": 65535,
+                    "VendorDefinedDescriptorTitleString": "GLACIERDSD",
+                    "VendorDefinedDescriptorData": "38"
+                },
+                {
+                    "DescriptorType": 65535,
+                    "VendorDefinedDescriptorTitleString": "APSKU",
+                    "VendorDefinedDescriptorData": "23000038"
+                },
+                {
+                    "DescriptorType": 65535,
+                    "VendorDefinedDescriptorTitleString": "ECSKU",
+                    "VendorDefinedDescriptorData": "4d35368b"
+                }
+            ]
+        },
+        {
+            "DeviceUpdateOptionFlags": [],
+            "ComponentImageSetVersionString": "ERoT,SMR::",
+            "ApplicableComponents": [
+                0,
+                4
+            ],
+            "Descriptors": [
+                {
+                    "DescriptorType": 1,
+                    "DescriptorData": "47160000"
+                },
+                {
+                    "DescriptorType": 2,
+                    "DescriptorData": "162023c93ec5411595f448701d49d675"
+                },
+                {
+                    "DescriptorType": 65535,
+                    "VendorDefinedDescriptorTitleString": "GLACIERDSD",
+                    "VendorDefinedDescriptorData": "50"
+                },
+                {
+                    "DescriptorType": 65535,
+                    "VendorDefinedDescriptorTitleString": "APSKU",
+                    "VendorDefinedDescriptorData": "03040250"
+                },
+                {
+                    "DescriptorType": 65535,
+                    "VendorDefinedDescriptorTitleString": "ECSKU",
+                    "VendorDefinedDescriptorData": "4d35368b"
+                }
+            ]
+        },
+        {
+            "DeviceUpdateOptionFlags": [],
+            "ComponentImageSetVersionString": "GPU:GB100_SKU201_ES2:",
+            "ApplicableComponents": [
+                5
+            ],
+            "Descriptors": [
+                {
+                    "DescriptorType": 1,
+                    "DescriptorData": "47160000"
+                },
+                {
+                    "DescriptorType": 2,
+                    "DescriptorData": "7865bed953204b6ab94d8fa70b6283d6"
+                },
+                {
+                    "DescriptorType": 65535,
+                    "VendorDefinedDescriptorTitleString": "APSKU",
+                    "VendorDefinedDescriptorData": "f6050000"
+                }
+            ]
+        },
+        {
+            "DeviceUpdateOptionFlags": [],
+            "ComponentImageSetVersionString": "GPU:GB100_SKU201_ES2:",
+            "ApplicableComponents": [
+                6
+            ],
+            "Descriptors": [
+                {
+                    "DescriptorType": 1,
+                    "DescriptorData": "47160000"
+                },
+                {
+                    "DescriptorType": 2,
+                    "DescriptorData": "7865bed953204b6ab94d8fa70b6283d6"
+                },
+                {
+                    "DescriptorType": 65535,
+                    "VendorDefinedDescriptorTitleString": "APSKU",
+                    "VendorDefinedDescriptorData": "f7050000"
+                }
+            ]
+        }
+    ],
+    "ComponentImageInformationArea": [
+        {
+            "ComponentClassification": 10,
+            "ComponentIdentifier": 65280,
+            "ComponentOptions": [
+                1
+            ],
+            "RequestedComponentActivationMethod": [],
+            "ComponentVersionString": "01.03.0183.0000_n04",
+            "ComponentComparisonStamp": "0x0103b700"
+        },
+        {
+            "ComponentClassification": 10,
+            "ComponentIdentifier": 16,
+            "ComponentOptions": [
+                1
+            ],
+            "RequestedComponentActivationMethod": [],
+            "ComponentVersionString": "GB200Nvl-24.08-6",
+            "ComponentComparisonStamp": "0x00240806"
+        },
+        {
+            "ComponentClassification": 10,
+            "ComponentIdentifier": 0,
+            "ComponentOptions": [
+                0
+            ],
+            "RequestedComponentActivationMethod": [],
+            "ComponentVersionString": "0.1C",
+            "ComponentComparisonStamp": "0xffffffff"
+        },
+        {
+            "ComponentClassification": 10,
+            "ComponentIdentifier": 56,
+            "ComponentOptions": [
+                1
+            ],
+            "RequestedComponentActivationMethod": [],
+            "ComponentVersionString": "02.02.03",
+            "ComponentComparisonStamp": "0x24080822"
+        },
+        {
+            "ComponentClassification": 10,
+            "ComponentIdentifier": 80,
+            "ComponentOptions": [
+                1
+            ],
+            "RequestedComponentActivationMethod": [],
+            "ComponentVersionString": "1.0A",
+            "ComponentComparisonStamp": "0x312e3041"
+        },
+        {
+            "ComponentClassification": 10,
+            "ComponentIdentifier": 49152,
+            "ComponentOptions": [
+                1
+            ],
+            "RequestedComponentActivationMethod": [],
+            "ComponentVersionString": "97.00.13.00.00",
+            "ComponentComparisonStamp": "0x01300000"
+        },
+        {
+            "ComponentClassification": 10,
+            "ComponentIdentifier": 49152,
+            "ComponentOptions": [
+                1
+            ],
+            "RequestedComponentActivationMethod": [],
+            "ComponentVersionString": "97.00.13.00.00",
+            "ComponentComparisonStamp": "0x01300000"
+        }
+    ]
 }
 ```

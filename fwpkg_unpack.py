@@ -801,10 +801,14 @@ class PLDMUnpack:
             desc_list = []
             for descriptors in device_records["RecordDescriptors"]:
                 if descriptors.get("InitialDescriptorType"):
+                    data = descriptors.get("InitialDescriptorData")
+                    data_len = len(data)
                     desc_data = {
                         "DescriptorType": descriptors.get("InitialDescriptorType"),
-                        "DescriptorData": hex(int.from_bytes(descriptors.get(
-                            "InitialDescriptorData"), byteorder='big', signed=False))[2:],
+                        "DescriptorData": int.from_bytes(
+                            data,
+                            byteorder='big',
+                            signed=False).to_bytes(data_len, 'big').hex()
                     }
                 elif descriptors.get("AdditionalDescriptorType") == 65535:
                     desc_data = {
@@ -815,12 +819,14 @@ class PLDMUnpack:
                             "VendorDefinedDescriptorData")
                     }
                 else:
+                    data = descriptors.get("AdditionalDescriptorIdentifierData")
+                    data_len = len(data)
                     desc_data = {
                         "DescriptorType": descriptors.get("AdditionalDescriptorType"),
-                        "DescriptorData": hex(int.from_bytes(descriptors.get(
-                            "AdditionalDescriptorIdentifierData"),
+                        "DescriptorData": int.from_bytes(
+                            data,
                             byteorder='big',
-                            signed=False))[2:],
+                            signed=False).to_bytes(data_len, 'big').hex()
                     }
                 desc_list.append(desc_data)
             fw_id_rec["Descriptors"] = desc_list

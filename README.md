@@ -1,12 +1,12 @@
 # PLDM-unpack
 
-> SPDX-FileCopyrightText: Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+> SPDX-FileCopyrightText: Copyright (c) 2023-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 >
 > SPDX-License-Identifier: MIT
 
 # Firmware Package Unpack Tool
 
-The firmware unpack tool is a command line tool that parses and unpacks a firmware package built according to the PLDM firmware update specification v1.0.1.
+The firmware unpack tool is a command line tool that parses and unpacks a firmware package built according to the PLDM firmware update specification v1.3.0 or earlier.
 The tool also shows metadata of the package, including device name, model, vendor, other uniquely identifying device descriptors, and version of the included firmware images. It provides the full path of each firmware image extracted from the package, and shows which image belongs to which component.
 
 ## Source Code
@@ -19,7 +19,7 @@ The tool supports the following options:
 usage: python3 fwpkg_unpack.py --help
 usage: fwpkg-unpack [-h] [--unpack] [--show_pkg_content] [--show_all_metadata] [--dump_builder_json] [--outdir OUTDIR] [--version] [--verbose] [file]
 
-NVIDIA fwpkg-unpack v4.1.3 The firmware package unpack tool performs parsing of the firmware package and unpacking. The unpacker will extract all firmware images
+NVIDIA fwpkg-unpack v4.1.4 The firmware package unpack tool performs parsing of the firmware package and unpacking. The unpacker will extract all firmware images
 from the package and create bin files for each.
 
 positional arguments:

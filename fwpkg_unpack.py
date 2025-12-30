@@ -23,6 +23,7 @@
 
 """Modules imported for unpack tool"""
 import argparse
+import binascii
 from datetime import datetime
 import hashlib
 import json
@@ -34,7 +35,7 @@ import sys
 import time
 import uuid
 
-UNPACK_TOOL_VERSION = "4.1.3"
+UNPACK_TOOL_VERSION = "4.1.4"
 
 class Util:
     """
@@ -241,6 +242,7 @@ class PLDMUnpack:
         self.full_header = {
             "PackageHeaderInformation": {},
             "FirmwareDeviceIdentificationArea": {},
+            "DownstreamDeviceIdentificationArea": {},
             "ComponentImageInformationArea": {},
             "Package Header Checksum": ''
         }
@@ -263,7 +265,17 @@ class PLDMUnpack:
         """
         # check if UUID is valid
         pldm_fw_header_id_v1_0 = b'\xf0\x18\x87\x8c\xcb\x7d\x49\x43\x98\x00\xa0\x2f\x05\x9a\xca\x02'
-        uuid_v1_0 = str(uuid.UUID(bytes=pldm_fw_header_id_v1_0))
+        pldm_fw_header_id_v1_1 = b'\x12\x44\xd2\x64\x8d\x7d\x47\x18\xa0\x30\xfc\x8a\x56\x58\x7d\x5a'
+        pldm_fw_header_id_v1_2 = b'\x31\x19\xce\x2f\xe8\x0a\x4a\x99\xaf\x6d\x46\xf8\xb1\x21\xf6\xbf'
+        pldm_fw_header_id_v1_3 = b'\x7b\x29\x1c\x99\x6d\xb6\x42\x08\x80\x1b\x02\x02\x6e\x46\x3c\x78'
+
+        valid_uuids = {
+            str(uuid.UUID(bytes=pldm_fw_header_id_v1_0)): "1.0",
+            str(uuid.UUID(bytes=pldm_fw_header_id_v1_1)): "1.1",
+            str(uuid.UUID(bytes=pldm_fw_header_id_v1_2)): "1.2",
+            str(uuid.UUID(bytes=pldm_fw_header_id_v1_3)): "1.3"
+        }
+
         try:
             self.header_map["PackageHeaderIdentifier"] = str(
             uuid.UUID(bytes=self.fwpkg_fd.read(16)))
@@ -271,10 +283,10 @@ class PLDMUnpack:
             log_msg = "Error: incorrect package format."
             Util.cli_log(log_msg, False)
             return False
-
-        if uuid_v1_0 != self.header_map["PackageHeaderIdentifier"]:
-            log_msg = "Expected PLDM v1.0 but PackageHeaderIdentifier is "\
-            + self.header_map["PackageHeaderIdentifier"]
+        if self.header_map["PackageHeaderIdentifier"] not in valid_uuids:
+            log_msg = "Expected PLDM v1.0 or v1.1 or v1.2 or v1.3, "\
+                  + "but PackageHeaderIdentifier is " \
+                  + self.header_map["PackageHeaderIdentifier"]
             Util.cli_log(log_msg, False)
             return False
         self.header_map["PackageHeaderFormatRevision"] = str(
@@ -325,6 +337,10 @@ class PLDMUnpack:
                     self.fwpkg_fd.read(1), byteorder='little', signed=False)
             id_record_map["FirmwareDevicePackageDataLength"] = int.from_bytes(
                 self.fwpkg_fd.read(2), byteorder='little', signed=False)
+            # ReferenceManifestLength is only present in format revision 4+ (version 1.3+)
+            if int(self.header_map["PackageHeaderFormatRevision"]) >= 4:
+                id_record_map["ReferenceManifestLength"] = int.from_bytes(
+                    self.fwpkg_fd.read(4), byteorder='little', signed=False)
             applicable_component_size = math.ceil(
                 self.header_map["ComponentBitmapBitLength"] / 8)
             id_record_map["ApplicableComponents"] = int.from_bytes(
@@ -401,6 +417,33 @@ class PLDMUnpack:
         }
         return True
 
+    def parse_downstream_device_identification_area(self):
+        """
+        Parse PLDM DownstreamDeviceIdentificationArea data
+        Returns:
+            True if parsing is successful
+        """
+        downstream_device_id_record_count = int.from_bytes(self.fwpkg_fd.read(1),
+                                                           byteorder='little',
+                                                           signed=False)
+        if self.verbose:
+            Util.cli_log(
+                f"Downstream device ID record count: {downstream_device_id_record_count}", True)
+
+        # For now, we only support count of 0 (no downstream devices)
+        # Future enhancement can add parsing of actual downstream device records
+        if downstream_device_id_record_count > 0:
+            log_msg = f"Warning: Found {downstream_device_id_record_count} \
+                downstream device records, but parsing is not yet implemented"
+            Util.cli_log(log_msg, False)
+            # Skip the downstream device records for now
+            # This would need to be implemented when downstream device support is added
+
+        self.full_header["DownstreamDeviceIdentificationArea"] = {
+            "DownstreamDeviceIDRecordCount": downstream_device_id_record_count
+        }
+        return True
+
     def parse_component_img_info(self):
         """
         Parse PLDM Component Image info data into self.fd_id_record_list
@@ -410,6 +453,9 @@ class PLDMUnpack:
         component_image_count = int.from_bytes(self.fwpkg_fd.read(2),
                                                byteorder='little',
                                                signed=False)
+        if self.verbose:
+            Util.cli_log(
+                f"Component image count: {component_image_count}", True)
         for _ in range(component_image_count):
             comp_info = {}
             comp_info["ComponentClassification"] = int.from_bytes(
@@ -441,6 +487,13 @@ class PLDMUnpack:
                 self.fwpkg_fd.read(1), byteorder='little', signed=False)
             comp_info["ComponentVersionString"] = self.fwpkg_fd.read(
                 comp_info["ComponentVersionStringLength"]).split(b'\x00')[0].decode('utf-8')
+            # Handle Component Opaque Data (for format revision 3+)
+            if int(self.header_map["PackageHeaderFormatRevision"]) >= 3:
+                comp_info["ComponentOpaqueDataLength"] = int.from_bytes(
+                    self.fwpkg_fd.read(4), byteorder='little', signed=False)
+                if comp_info["ComponentOpaqueDataLength"] > 0:
+                    comp_info["ComponentOpaqueData"] = self.fwpkg_fd.read(
+                        comp_info["ComponentOpaqueDataLength"]).hex()
             self.component_img_info_list.append(comp_info)
         self.full_header["ComponentImageInformationArea"] = {
             "ComponentImageCount": component_image_count,
@@ -559,10 +612,93 @@ class PLDMUnpack:
                 return False
         return True
 
+    def validate_pldm_header_checksum(self):
+        """
+        Calculate and validate PLDM header checksum
+        Returns:
+            (bool, str): (validation_result, message)
+        """
+        current_pos = self.fwpkg_fd.tell()
+        stored_checksum = self.full_header.get('Package Header Checksum')
+
+        if stored_checksum is None:
+            return False, "Header checksum not found"
+
+        # Calculate checksum from start of file up to (but not including) header checksum
+        self.fwpkg_fd.seek(0)
+
+        # Determine header size (up to checksum field)
+        header_size = current_pos - 4  # Subtract 4 bytes for the checksum field itself
+
+        header_data = self.fwpkg_fd.read(header_size)
+        calculated_checksum = binascii.crc32(header_data) & 0xFFFFFFFF
+
+        # Restore file position
+        self.fwpkg_fd.seek(current_pos)
+
+        is_valid = calculated_checksum == stored_checksum
+        message = f"Header checksum: {'VALID' if is_valid else 'INVALID'} " \
+                    f"(calculated: 0x{calculated_checksum:08X}, stored: 0x{stored_checksum:08X})"
+
+        if self.verbose:
+            Util.cli_log(message, True)
+
+        return is_valid, message
+
+    def validate_pldm_payload_checksum(self):
+        """
+        Calculate and validate PLDM Firmware Package Payload checksum
+        Returns:
+            (bool, str): (validation_result, message)
+        """
+        stored_checksum = self.full_header.get('PLDM Firmware Package Payload Checksum')
+
+        if stored_checksum is None:
+            return True, "No payload checksum to validate (not present in this package version)"
+
+        current_pos = self.fwpkg_fd.tell()
+
+        # Calculate CRC32 of all component images
+        crc = 0
+        for comp_info in self.component_img_info_list:
+            offset = comp_info["ComponentLocationOffset"]
+            size = comp_info["ComponentSize"]
+
+            self.fwpkg_fd.seek(offset)
+            component_data = self.fwpkg_fd.read(size)
+            crc = binascii.crc32(component_data, crc)
+
+        calculated_checksum = crc & 0xFFFFFFFF
+
+        # Restore file position
+        self.fwpkg_fd.seek(current_pos)
+
+        is_valid = calculated_checksum == stored_checksum
+        message = f"Payload checksum: {'VALID' if is_valid else 'INVALID'} " \
+                    f"(calculated: 0x{calculated_checksum:08X}, stored: 0x{stored_checksum:08X})"
+        if self.verbose:
+            Util.cli_log(message, True)
+
+        return is_valid, message
+
     def get_pldm_header_checksum(self):
         """ Read PLDM header checksum """
         self.full_header['Package Header Checksum'] = int.from_bytes(
             self.fwpkg_fd.read(4), byteorder='little', signed=False)
+        # Validate the header checksum
+        self.validate_pldm_header_checksum()
+
+    def get_pldm_payload_checksum(self):
+        """ Read PLDM payload checksum for format revision 4 and above """
+        if int(self.header_map["PackageHeaderFormatRevision"]) >= 4:
+            self.full_header['PLDM Firmware Package Payload Checksum'] = int.from_bytes(
+                self.fwpkg_fd.read(4), byteorder='little', signed=False)
+            if self.verbose:
+                log_msg = f"PLDM Firmware Package Payload Checksum: \
+                    0x{self.full_header['PLDM Firmware Package Payload Checksum']:08X}"
+                Util.cli_log(log_msg, True)
+            # Validate the payload checksum
+            self.validate_pldm_payload_checksum()
 
     def unpack_pldm_package(self, package_name, output_dir):
         """
@@ -590,8 +726,13 @@ class PLDMUnpack:
                 if parsing_valid:
                     parsing_valid = self.parse_device_id_records()
                     if parsing_valid:
-                        parsing_valid = self.parse_component_img_info()
-                        self.get_pldm_header_checksum()
+                        # Parse downstream device identification area for format revision > 1
+                        if int(self.header_map["PackageHeaderFormatRevision"]) > 1:
+                            parsing_valid = self.parse_downstream_device_identification_area()
+                        if parsing_valid:
+                            parsing_valid = self.parse_component_img_info()
+                            self.get_pldm_header_checksum()
+                            self.get_pldm_payload_checksum()
                 if parsing_valid and self.unpack:
                     if output_dir == "" or output_dir is None:
                         # If outdir was not given in command
@@ -776,7 +917,7 @@ class PLDMUnpack:
         return descriptors
 
     def get_builder_json(self):
-        """ 
+        """
         Get PLDM metadata in JSON format ingestible by the open src pkg builder tool
         OSS package builder script can be found here:
         https://github.com/openbmc/pldm/blob/master/tools/fw-update/pldm_fwup_pkg_creator.py
@@ -787,6 +928,9 @@ class PLDMUnpack:
             "PackageReleaseDateTime": Util.get_alt_time_format(
                 self.header_map["PackageReleaseDateTime"]),
             "PackageVersionString": self.header_map["PackageVersionString"]}
+        # Add PackagePayloadChecksum if present (format revision 4+)
+        if 'PLDM Firmware Package Payload Checksum' in self.full_header:
+            header_info["PackagePayloadChecksum"] = f"0x{self.full_header['PLDM Firmware Package Payload Checksum']:08X}"
         fw_id_area = []
         for device_records in self.full_header[
                 'FirmwareDeviceIdentificationArea']['FirmwareDeviceIDRecords']:
@@ -800,7 +944,7 @@ class PLDMUnpack:
             }
             desc_list = []
             for descriptors in device_records["RecordDescriptors"]:
-                if descriptors.get("InitialDescriptorType"):
+                if descriptors.get("InitialDescriptorType") is not None:
                     data = descriptors.get("InitialDescriptorData")
                     data_len = len(data)
                     desc_data = {
@@ -842,6 +986,10 @@ class PLDMUnpack:
                 "ComponentVersionString": img_data["ComponentVersionString"],
                 "ComponentComparisonStamp": img_data["ComponentComparisonStamp"]
             }
+            # Add Component Opaque Data if present (format revision 3+)
+            if int(self.header_map["PackageHeaderFormatRevision"]) >= 3 \
+            and "ComponentOpaqueData" in img_data:
+                img_info["ComponentOpaqueData"] = img_data["ComponentOpaqueData"]
             comp_img_area.append(img_info)
         self.pkg_builder_json = {
             "PackageHeaderInformation": header_info,
@@ -898,10 +1046,11 @@ class PLDMUnpack:
         package_json["PackageHeaderInformation"][
             "PackageHeaderFormatRevision"] = (
                 self.header_map["PackageHeaderFormatRevision"])
-        if package_json["PackageHeaderInformation"][
-                "PackageHeaderFormatRevision"] != "1":
-            return False, "The input firmware package version does not conform \
-            to the format created by NVIDIA packaging tool."
+
+        # Validate PackageHeaderFormatRevision - reject anything > 4
+        revision = int(package_json["PackageHeaderInformation"]["PackageHeaderFormatRevision"])
+        if revision > 4:
+            return False, f"The input firmware package version {revision} is not supported. Maximum supported version is 4."
 
         package_json["PackageHeaderInformation"]["PackageReleaseDateTime"] = (
             self.header_map["PackageReleaseDateTime"])
@@ -909,6 +1058,10 @@ class PLDMUnpack:
             self.header_map["PackageVersionString"])
         package_json['PackageHeaderInformation']["PackageSHA256"] = (
             Util.get_checksum_for_component_image(self.package))
+        # Add PackagePayloadChecksum if present (format revision 4+)
+        if 'PLDM Firmware Package Payload Checksum' in self.full_header:
+            package_json['PackageHeaderInformation']["PackagePayloadChecksum"] = (
+                f"0x{self.full_header['PLDM Firmware Package Payload Checksum']:08X}")
         recordlist = []
         for record in self.fd_id_record_list:
             rec = {
@@ -933,7 +1086,7 @@ class PLDMUnpack:
 
 def main():
     """
-    Call upack parser and prepare output json
+    Call unpack parser and prepare output json
     """
     arg_parser = argparse.ArgumentParser(prog='fwpkg-unpack',
                                          description=\

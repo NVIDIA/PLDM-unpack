@@ -408,8 +408,7 @@ class PLDMUnpack:
                 descriptors.append(descriptor_map)
             id_record_map["RecordDescriptors"] = descriptors
             id_record_map["FirmwareDevicePackageData"] = self.fwpkg_fd.read(
-                id_record_map["FirmwareDevicePackageDataLength"]).decode(
-                    'utf-8')
+                id_record_map["FirmwareDevicePackageDataLength"]).hex()
             self.fd_id_record_list.append(id_record_map)
         self.full_header["FirmwareDeviceIdentificationArea"] = {
             "DeviceIDRecordCount": self.device_id_record_count,
